@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve API key from env or config file.
+if [ -n "${REFLECTION_API_KEY:-}" ]; then
+  KEY="$REFLECTION_API_KEY"
+elif [ -f "${HOME}/.config/reflection-usage/api_key" ]; then
+  KEY="$(head -n 1 "${HOME}/.config/reflection-usage/api_key" | tr -d '\r\n')"
+else
+  echo "missing Reflection API key: set REFLECTION_API_KEY or create ~/.config/reflection-usage/api_key" >&2
+  exit 2
+fi
+
+if [ -z "$KEY" ]; then
+  echo "empty Reflection API key" >&2
+  exit 2
+fi
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+curl -sS -D "$tmpdir/h" -o "$tmpdir/b" \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"Beam-1.0-501B-A23B","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' \
+  https://api.reflection.ai/openai/v1/chat/completions >/dev/null
+
+python3 - "$tmpdir/h" <<'PY'
+import sys, json, datetime
+
+path = sys.argv[1]
+h = {}
+for line in open(path):
+    if ":" in line:
+        k, v = line.split(":", 1)
+        h[k.strip().lower()] = v.strip()
+
+def gi(key):
+    v = h.get(key)
+    if v is None:
+        return None
+    v = v.strip().rstrip("s")
+    try:
+        return float(v)
+    except ValueError:
+        return None
+
+out = {
+    "requests_remaining": gi("x-ratelimit-remaining-requests"),
+    "requests_limit": gi("x-ratelimit-limit-requests"),
+    "requests_reset_seconds": gi("x-ratelimit-reset-requests"),
+    "requests_remaining_day": gi("x-ratelimit-remaining-requests-day"),
+    "requests_limit_day": gi("x-ratelimit-limit-requests-day"),
+    "requests_reset_day_seconds": gi("x-ratelimit-reset-requests-day"),
+    "tokens_remaining": gi("x-ratelimit-remaining-tokens"),
+    "tokens_limit": gi("x-ratelimit-limit-tokens"),
+    "tokens_reset_seconds": gi("x-ratelimit-reset-tokens"),
+    "tokens_remaining_day": gi("x-ratelimit-remaining-tokens-day"),
+    "tokens_limit_day": gi("x-ratelimit-limit-tokens-day"),
+    "tokens_reset_day_seconds": gi("x-ratelimit-reset-tokens-day"),
+    "output_tokens_remaining": gi("x-ratelimit-remaining-output-tokens-day"),
+    "output_tokens_limit": gi("x-ratelimit-limit-output-tokens-day"),
+    "output_tokens_reset_seconds": gi("x-ratelimit-reset-output-tokens-day"),
+    "uncached_input_tokens_remaining": gi("x-ratelimit-remaining-uncached-input-tokens-day"),
+    "uncached_input_tokens_limit": gi("x-ratelimit-limit-uncached-input-tokens-day"),
+    "uncached_input_tokens_reset_seconds": gi("x-ratelimit-reset-uncached-input-tokens-day"),
+    "last_checked": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+}
+print(json.dumps(out))
+PY

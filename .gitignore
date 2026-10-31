@@ -1,0 +1,7 @@
+# local secrets
+.env
+api_key
+*.key
+
+# OS
+.DS_Store
