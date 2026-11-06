@@ -19,11 +19,17 @@ fi
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
-curl -sS -D "$tmpdir/h" -o "$tmpdir/b" \
-  -H "Authorization: Bearer $KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"Beam-1.0-501B-A23B","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' \
-  https://api.reflection.ai/openai/v1/chat/completions >/dev/null
+for attempt in 1 2 3; do
+  if curl -4 -sS -D "$tmpdir/h" -o "$tmpdir/b" \
+    -H "Authorization: Bearer $KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"model":"Beam-1.0-501B-A23B","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' \
+    https://api.reflection.ai/openai/v1/chat/completions >/dev/null 2>"$tmpdir/e"; then
+    break
+  fi
+  cat "$tmpdir/e" >&2
+  sleep 2
+done
 
 python3 - "$tmpdir/h" <<'PY'
 import sys, json, datetime
